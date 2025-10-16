@@ -1,0 +1,18 @@
+services:
+  index-service:
+    build: ./Containers/BackupOrganizer/
+    container_name: index-service
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./Containers/BackupOrganizer/:/app
+    environment:
+      - NODE_ENV=production
+    command: [ "node", "index.js" ]
+  index-front:
+    build: ./Containers/template/
+    container_name: index-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./Containers/template/index:/usr/share/nginx/html

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="styles.css">
+<title>Backup Organiser</title>
+
+<script>
+
+// Formatting for Overview and Detailed List
+// --------------------
+function backups_str(elem) {
+    if (elem.backupEntries.length !== 0) {
+        lastbackup = elem.backupEntries.at(-1);
+        return lastbackup.date + " " + lastbackup.bakName + " " +lastbackup.location;
+    } else {
+        return " -- No backup -- ";
+    }
+}
+
+function linkify(elem) {
+    return '<a onclick="get_info(\'' + elem.name + '\')">' + elem.name + '</a>';
+}
+
+function make_entry(elem) {
+    console.log(elem)
+    return "\n<li> " + linkify(elem) + " - " + backups_str(elem);
+}
+
+function make_backup_entry(collection_name, backup) {
+    out = '\n<li><a onclick="unbackup(\'' + collection_name + "','" + backup.bakName + "','" + backup.date + '\')">[Unbackup]</a> ';
+    out += backup.date + " " + backup.bakName + " " + backup.location;
+    return out;
+}
+
+function info(elem) {
+    // First list everything except for the backups, then add these separately
+    console.log(elem)
+    out=Object.keys(elem)
+        .filter( f => f != "backups")
+        .reduce( (acc, cur) => acc + "\n<li><b>" + cur + "</b>:  " + elem[cur], "<ul>");
+    out += "\n<li><b>Backups:</b>"
+    out += elem.backupEntries.reduce( (acc, cur) => acc + make_backup_entry(elem['name'], cur), "\n<ul>") + "\n</ul>";
+    out += "\n</ul>"
+    return out;
+}
+
+
+// GET calls
+// --------------------
+function overview() {
+    fetch('http://localhost:3000/api/Overview')
+        .then( response => response.json() )
+        .then( response => response.reduce( (acc, cur) => acc + make_entry(cur), "\n<ul>") + "\n</ul>" )
+        .then( lst => document.getElementById("overview").innerHTML = lst );
+}
+
+function details() {
+    fetch('http://localhost:3000/api/List')
+        .then( response => response.json() )
+        .then( response => response.reduce( (acc, cur) => acc + "<p>" + info(cur) + "</p>\n", ""))
+        .then( lst => document.getElementById("details").innerHTML = lst );
+}
+
+function get_info(name) {
+    fetch('http://localhost:3000/api/Info?' + new URLSearchParams({name: name}))
+        .then( response => response.json() )
+        .then( response => info(response) )
+        .then( txt => document.getElementById("info").innerHTML = txt )
+        .catch( err => console.log("Probably not found") )    
+}
+
+function search() {
+    let form=document.getElementById('searchForm');
+    let fd = new FormData(form);
+    let name = fd.get('name');
+    fetch('http://localhost:3000/api/Search?' + new URLSearchParams({name: name}))
+        .then( response => response.json() )
+        .then( response => response.reduce( (acc, cur) => acc + make_entry(cur), "<h2>Search Results</H2>\n<ul>") + "\n</ul>" )
+        .then( lst => document.getElementById("searchResults").innerHTML = lst );
+}
+
+// POST/DELETE calls that update or delete things
+// --------------------
+
+// Update the current view so there is no stale information
+function updated(name) {
+    overview();
+    details();
+    get_info(name);
+}
+
+function addCollection() {
+    let form=document.getElementById('addForm');
+    let fd = Object.fromEntries(new FormData(form));
+    fd['stillUpdated'] = fd['stillUpdated'] || "false";
+    fetch('http://localhost:3000/api/Collection',
+          { method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fd) })
+        .then( response => document.getElementById('addStatus').innerHTML = "<p>Reply from Server: "+ response.statusText + " </p>")
+        .then( () => updated(fd.name) )
+}
+
+function addBackup() {
+    let form=document.getElementById('addBackup');
+    let fd = Object.fromEntries(new FormData(form));
+    fetch('http://localhost:3000/api/Backup',  // TODO This is copypasta from addCollection; refactor!
+          { method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fd) })
+        .then( response => document.getElementById('addBackupStatus').innerHTML = "<p>Reply from Server: "+ response.statusText + " </p>")
+        .then( () =>  updated(fd.name) )
+
+}
+
+function editCollection() {
+    let form=document.getElementById('editForm');
+    let fd = Object.fromEntries(new FormData(form));
+    fd['newFlag'] = fd['stillUpdated'] || "false";
+    fetch('http://localhost:3000/api/Edit',
+          { method: 'PUT', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fd) })
+        .then( response => document.getElementById('editStatus').innerHTML = "<p>Reply from Server: "+ response.statusText + " </p>")
+        .then( () => updated(fd.name) )
+}
+
+function unbackup(collection_name, backup_name) {
+    fetch('http://localhost:3000/api/Unbackup?' + new URLSearchParams({name:collection_name,bakName:backup_name}),{ method: 'DELETE' })
+        .then( response => document.getElementById('unbackupStatus').innerHTML = "<p>Unbackup Response: "+ response.statusText + " </p>")
+        .then( () => updated(collection_name) )
+}
+
+function deleteCollection() {
+    let form=document.getElementById('deleteForm');
+    let fd = new FormData(form);
+    let name = fd.get('name');
+    fetch('http://localhost:3000/api/Delete?' + new URLSearchParams({name: name}), { method: 'DELETE' })
+        .then( response => document.getElementById('deleteStatus').innerHTML = "<p>Reply from Server: "+ response.statusText + " </p>")
+        .then( () =>  updated(name) )    
+}
+
+// Helper function to disable the default behaviour
+// when 'Enter' is pressed in a form.
+// At the very least, default is to reload the whole page, which I do not want.
+// Instead, do the "fun" thing.
+function passOrExecute(event, fun) {
+    if ('Enter' == event.key) {
+        fun();
+        return false;
+    } else return true;
+}
+
+</script>
+</head>
+
+<!-- Note the div-tags below. The javascript functions finds these tags and fill them with contents -->
+<!-- Also note that I have not cared one iota about formatting; that's what CSS is for -->
+
+<body>
+<h1>Overview</h1>
+<div id="overview"></div>
+<script> overview() </script>
+
+
+<h1>Info</h1>
+<p>DataCollection Details</p>
+<div id="info"></div>
+
+
+<h1>Search</h1>
+<form id="searchForm" onkeydown="return passOrExecute(event, search);">
+<input type="text" name="name">
+<input type="button" value="Search" onclick="search()">
+</form>
+
+<div id="searchResults"></div>
+
+
+<h1>Add Collection</h1>
+<form id="addForm" onkeydown="return passOrExecute(event, addCollection);">
+
+<label>Name: <input type="text" name="name"></label><br>
+<label>Description: <input type="text" name="desc"></label><br>
+<label>Creation Date: <input type="text" name="creationDate"></label><br>
+<label>Last Modified: <input type="text" name="modified"></label><br>
+<label>Still Updated: <input type="checkbox" name="stillUpdated" value="true"></label><br>
+
+<input type="reset" value="Clear">
+<input type="button" value="Add" onclick="addCollection()">
+</form>
+
+<div id="addStatus"></div>
+
+
+<h1>Add Backup</h1>
+<form id="addBackup" onkeydown="return passOrExecute(event, addBackup);">
+
+<label>Collection Name: <input type="text" name="name"></label><br>
+<label>Backup Name: <input type="text" name="bakName"></label><br>
+<label>Creation Date: <input type="text" name="date"></label><br>
+<label>Location: <input type="text" name="location"></label><br>
+
+<input type="reset" value="Clear">
+<input type="button" value="Add" onclick="addBackup()">
+</form>
+
+<div id="addBackupStatus"></div>
+
+
+<h1>Edit</h1>
+<form id="editForm" onkeydown="return passOrExecute(event, editCollection);">
+
+<label>Name: <input type="text" name="name"></label><br>
+<label>Last Modified: <input type="text" name="newMod"></label><br>
+<label>Still Updated: <input type="checkbox" name="newFlag" value="true"></label><br>
+
+<input type="reset" value="Clear">
+<input type="button" value="Edit" onclick="editCollection()">
+</form>
+
+<div id="editStatus"></div>
+
+
+<h1>Delete</h1>
+<form id="deleteForm" onkeydown="return passOrExecute(event, deleteCollection);">
+<input type="text" name="name">
+<input type="button" value="Delete Collection" onclick="deleteCollection()">
+</form>
+
+<div id="deleteStatus"></div>
+
+
+<h1>Unbackup</h1>
+<div id="unbackupStatus"></div>
+
+
+<h1>Detailed List</h1>
+<div id="details"></div>
+<script> details() </script>
+
+</body>
+</html>
